@@ -62,7 +62,7 @@ type KiteDBPage struct {
 }
 ```
 
-## 4.NewKiteBTreeIndex
+## 4.KiteBTreeIndex
 * 这是一个BTree索引，参照算法导论上的实现写的，在KiteDB中用它来索引数据的PageId，这个接口也可以独立使用，因为他的被索引项可以是任意数据类型，只要实现了KiteIndexItem接口
 
 ```
