@@ -72,7 +72,7 @@ type KiteIndex interface {
 }
 ```
 
-## 5.KiteBitsetRedis
+## 5.KiteBitsetDisk
 * 这是一个基于磁盘的Bitset，他在KiteDBPageFile中用来标记了哪些页是可用的，哪些页是不可用的
 ```
 type KiteBitset interface {
