@@ -5,7 +5,7 @@ import (
 	"kitedb/index"
 	"kitedb/index/item"
 	"kitedb/page"
-	"log"
+	// "log"
 	// "fmt"
 	"math"
 )
@@ -39,7 +39,7 @@ func (self *KiteDB) SelectDB(dbName string) (*page.KiteDBPageFile, index.KiteInd
 	idx, exists = self.idxs[dbName]
 	if !exists {
 		// idx = index.NewRedisIndex(dbName)
-		idx = index.NewKiteBTreeIndex(self.dir+"/index", dbName, 32)
+		idx = index.NewKiteBTreeIndex(self.dir+"/index", dbName, 64, false)
 		self.idxs[dbName] = idx
 	}
 	return db, idx, nil
@@ -75,15 +75,7 @@ func (self *KiteDBSession) Query(key string) []byte {
 	indexData, _ := self.index.Search(key)
 	query := &item.KeyIndexItem{}
 	query.Unmarshal(indexData)
-	pageIds := []int{query.PageId}
-	pages := self.pageFile.Read(pageIds)
-	bs := make([]byte, self.pageFile.PageSize*len(pages))
-	copyN := 0
-	for _, page := range pages {
-		copy(bs, page.GetData())
-		copyN += len(page.GetData())
-	}
-	return bs[:copyN]
+	return self.pageFile.ReadSeqData(query.PageId)
 }
 
 func (self *KiteDBSession) Save(key string, value []byte) bool {
@@ -117,7 +109,6 @@ func (self *KiteDBSession) Save(key string, value []byte) bool {
 	self.index.Insert(key, &item.KeyIndexItem{
 		PageId: pages[0].GetPageId(),
 	})
-	log.Println("index ", key, pages[0].GetPageId())
 	return true
 }
 

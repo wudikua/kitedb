@@ -32,18 +32,20 @@ type KiteBTreeNode struct {
 }
 
 type KiteBTreeIndex struct {
-	idxName  string
-	degree   int
-	pageFile *page.KiteDBPageFile
-	root     *KiteBTreeNode
+	idxName   string
+	degree    int
+	pageFile  *page.KiteDBPageFile
+	root      *KiteBTreeNode
+	clustered bool
 }
 
-func NewKiteBTreeIndex(base string, idxName string, degree int) *KiteBTreeIndex {
+func NewKiteBTreeIndex(base string, idxName string, degree int, clustered bool) *KiteBTreeIndex {
 	btree := &KiteBTreeIndex{
-		degree:   degree,
-		root:     NewKiteBTreeNode(degree / 2),
-		idxName:  idxName,
-		pageFile: page.NewKiteDBPageFile(base, idxName),
+		degree:    degree,
+		root:      NewKiteBTreeNode(degree / 2),
+		idxName:   idxName,
+		pageFile:  page.NewKiteDBPageFile(base, idxName),
+		clustered: clustered,
 	}
 	btree.root.btree = btree
 	pages := btree.pageFile.Read([]int{0})
@@ -88,7 +90,6 @@ func (self *KiteBTreeNode) String() string {
 }
 
 func (self *KiteBTreeNode) WriteDisk() error {
-	// log.Println("write node ", self)
 	bs := make([]byte, 0, page.PAGE_FILE_PAGE_SIZE)
 	buff := bytes.NewBuffer(bs)
 	// 有多少个记录
@@ -99,6 +100,14 @@ func (self *KiteBTreeNode) WriteDisk() error {
 	} else {
 		binary.Write(buff, binary.BigEndian, byte(0))
 	}
+	if self.pageId == 0 {
+		if self.btree.clustered {
+			binary.Write(buff, binary.BigEndian, byte(1))
+		} else {
+			binary.Write(buff, binary.BigEndian, byte(0))
+		}
+	}
+
 	// log.Println("write n", self.n, " at page ", self.pageId)
 	// log.Println("write keys vals", self.keys, self.vals, " at page ", self.pageId)
 	// 写入keys vals
@@ -179,14 +188,27 @@ func (self *KiteBTreeNode) ReadDisk() error {
 	} else {
 		self.leaf = false
 	}
+	if self.pageId == 0 {
+		binary.Read(buff, binary.BigEndian, &b)
+		if b == 1 {
+			self.btree.clustered = true
+		} else {
+			self.btree.clustered = false
+		}
+	}
 	for i := 0; i < self.n; i++ {
 		binary.Read(buff, binary.BigEndian, &i32)
 		key := self.btree.pageFile.Read([]int{int(i32)})
 		self.keys[i] = string(key[0].GetData())
 		self.keysPageId[i] = int(i32)
 		binary.Read(buff, binary.BigEndian, &i32)
-		val := self.btree.pageFile.Read([]int{int(i32)})
-		self.vals[i] = val[0].GetData()
+		if self.btree.clustered {
+			self.vals[i] = self.btree.pageFile.ReadSeqData(int(i32))
+		} else {
+			bs := make([]byte, 4)
+			binary.BigEndian.PutUint32(bs, i32)
+			self.vals[i] = bs
+		}
 		self.valsPageId[i] = int(i32)
 	}
 	if !self.leaf {
@@ -225,17 +247,24 @@ func (self *KiteBTreeNode) InsertNotFull(key string, data KiteIndexItem) {
 	if self.leaf {
 		// 当前是叶子节点 找到插入位置以后直接插入 @todo 可以改造成二分查找
 		i = self.findKeyInsert(key)
-		pageKey := self.writeVariable([]byte(key))
-		// log.Println("pagekey", pageKey)
-		pageVal := self.writeVariable(data.Marshal())
-		// log.Println("pageval", pageVal)
-		// log.Println("cur i", i)
-		self.keys[i] = key
-		self.vals[i] = data.Marshal()
-		self.keysPageId[i] = pageKey
-		self.valsPageId[i] = pageVal
 
+		pageKey := self.writeVariable([]byte(key))
+		self.keys[i] = key
+		self.keysPageId[i] = pageKey
+
+		if self.btree.clustered {
+			pageVal := self.writeVariable(data.Marshal())
+			self.vals[i] = data.Marshal()
+			self.valsPageId[i] = pageVal
+		} else {
+			pageVal := data.GetData().(int)
+			bs := make([]byte, 4)
+			binary.BigEndian.PutUint32(bs, uint32(pageVal))
+			self.vals[i] = bs
+			self.valsPageId[i] = pageVal
+		}
 		self.n += 1
+		self.WriteDisk()
 	} else {
 		// log.Println("need search children and insert")
 		for i = self.n - 1; i >= 0 && key < self.keys[i]; i-- {
@@ -253,7 +282,6 @@ func (self *KiteBTreeNode) InsertNotFull(key string, data KiteIndexItem) {
 		// log.Println("find insert into children ", self.children[i])
 		self.children[i].InsertNotFull(key, data)
 	}
-	self.WriteDisk()
 }
 
 func (self *KiteBTreeIndex) BTreeSplitChild(node *KiteBTreeNode, child *KiteBTreeNode, pos int) {
@@ -339,7 +367,7 @@ func (self *KiteBTreeIndex) Insert(key string, data KiteIndexItem) error {
 	r := self.root
 	if r.n == 2*r.t-1 {
 		// 根节点已经满了，需要树增高分裂
-		// log.Println("root full")
+		// log.Println("tree height grow")
 		root := NewKiteBTreeNode(self.degree / 2)
 		root.btree = self
 		root.pageId = r.pageId

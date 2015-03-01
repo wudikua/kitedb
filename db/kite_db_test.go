@@ -18,7 +18,7 @@ func TestSave(t *testing.T) {
 	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
 	session := db.GetSession()
 	session.SelectDB("test")
-	N := 100
+	N := 1000
 	begin := time.Now().UnixNano()
 	for i := 0; i < N; i++ {
 		session.Save(fmt.Sprintf("%d", i), []byte(fmt.Sprintf("abc%d", i)))
@@ -69,7 +69,7 @@ func TestQuery(t *testing.T) {
 	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
 	session := db.GetSession()
 	session.SelectDB("test")
-	N := 100
+	N := 1000
 	begin := time.Now().UnixNano()
 	for i := 0; i < N; i++ {
 		bs := session.Query(fmt.Sprintf("%d", i))

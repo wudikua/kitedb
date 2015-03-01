@@ -142,6 +142,23 @@ func (self *KiteDBPageFile) Read(pageIds []int) (pages []*KiteDBPage) {
 	return result
 }
 
+func (self *KiteDBPageFile) ReadSeqData(pageId int) []byte {
+	val := self.Read([]int{pageId})
+	if val[0].GetPageType() == PAGE_TYPE_END {
+		// 单页
+		return val[0].GetData()
+	} else {
+		// 多页
+		buff := bytes.NewBuffer(make([]byte, self.PageSize))
+		for val[0].GetPageType() != PAGE_TYPE_PART {
+			val := self.Read([]int{val[0].GetNext()})
+			buff.Write(val[0].GetData())
+		}
+		buff.Write(val[0].GetData())
+		return buff.Bytes()
+	}
+}
+
 func (self *KiteDBPageFile) Write(pages []*KiteDBPage) {
 	for _, page := range pages {
 		// 写page缓存

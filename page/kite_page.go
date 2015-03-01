@@ -37,6 +37,14 @@ func (self *KiteDBPage) SetPageType(t int) {
 	self.pageType = t
 }
 
+func (self *KiteDBPage) GetPageType() int {
+	return self.pageType
+}
+
+func (self *KiteDBPage) GetNext() int {
+	return self.next
+}
+
 func (self *KiteDBPage) GetPageId() int {
 	return self.pageId
 }

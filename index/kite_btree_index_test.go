@@ -10,7 +10,7 @@ import (
 
 func TestInsert(t *testing.T) {
 	// t=2的btree
-	idx := NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4)
+	idx := NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, true)
 	val := &item.KeyIndexItem{
 		PageId: 1,
 	}
@@ -21,7 +21,7 @@ func TestInsert(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	idx := NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4)
+	idx := NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, true)
 	rs, _ := idx.Search("99597510")
 	log.Println("query result", rs)
 }
@@ -29,7 +29,7 @@ func TestSearch(t *testing.T) {
 func TestIndexBench(t *testing.T) {
 	N := 10
 	var idx *KiteBTreeIndex
-	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4)
+	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, true)
 	for i := 0; i < N; i++ {
 		val := &item.KeyIndexItem{
 			PageId: i + 1,
@@ -47,7 +47,7 @@ func TestIndexBench(t *testing.T) {
 func TestSearchBench(t *testing.T) {
 	N := 10
 	var idx *KiteBTreeIndex
-	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4)
+	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, true)
 	// log.Println(idx.root)
 	// key := "2"
 	// rs, _ := idx.Search(key)
