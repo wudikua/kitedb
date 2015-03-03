@@ -44,7 +44,8 @@ type KiteDBPageFile struct {
 type KiteDBWrite struct {
 	page   *KiteDBPage //写到哪个页上
 	data   []byte      //写的数据
-	length int         //写入长度
+	time   int64
+	length int //写入长度
 }
 
 func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
@@ -106,16 +107,32 @@ func (self *KiteDBPageFile) Allocate(count int) []*KiteDBPage {
 		self.freeList.Remove(e)
 		// 代表页已经被占用
 		self.pageStatus.Set(pages[i].pageId, true)
+		// log.Println("allocId", pages[i].pageId)
 	}
 	// log.Println("create pages result", pages)
 	return pages
+}
+
+func (self *KiteDBPageFile) Free(pageIds []int) {
+	self.allocLock.Lock()
+	defer self.allocLock.Unlock()
+	for _, pageId := range pageIds {
+		self.freeList.PushFront(&KiteDBPage{
+			pageId: pageId,
+		})
+		self.pageStatus.Set(pageId, false)
+		_, contains := self.pageCache[pageId]
+		if contains {
+			self.pageCache[pageId] = nil
+		}
+	}
 }
 
 func (self *KiteDBPageFile) Read(pageIds []int) (pages []*KiteDBPage) {
 	result := []*KiteDBPage{}
 	for _, pageId := range pageIds {
 		page, contains := self.pageCache[pageId]
-		if !contains || true {
+		if !contains {
 			// log.Println("miss page cache")
 			page = &KiteDBPage{
 				pageId: pageId,
@@ -144,23 +161,46 @@ func (self *KiteDBPageFile) Read(pageIds []int) (pages []*KiteDBPage) {
 
 func (self *KiteDBPageFile) ReadSeqData(pageId int) []byte {
 	val := self.Read([]int{pageId})
+	// log.Println("next", val[0].GetNext())
 	if val[0].GetPageType() == PAGE_TYPE_END {
 		// 单页
 		return val[0].GetData()
 	} else {
 		// 多页
-		buff := bytes.NewBuffer(make([]byte, self.PageSize))
-		for val[0].GetPageType() != PAGE_TYPE_PART {
-			val := self.Read([]int{val[0].GetNext()})
+		buff := bytes.NewBuffer(val[0].GetData())
+		for val[0].GetPageType() == PAGE_TYPE_PART {
+			val = self.Read([]int{val[0].GetNext()})
+			// log.Println("next", val[0].GetNext(), val[0].GetPageType())
+			// log.Println("data length", len(val[0].GetData()))
 			buff.Write(val[0].GetData())
 		}
-		buff.Write(val[0].GetData())
 		return buff.Bytes()
 	}
 }
 
+func (self *KiteDBPageFile) ReadSeqPages(pageId int) []*KiteDBPage {
+	result := make([]*KiteDBPage, 1)
+	val := self.Read([]int{pageId})
+	result[0] = &KiteDBPage{
+		pageId: pageId,
+	}
+	if val[0].GetPageType() == PAGE_TYPE_END {
+		return result
+	} else {
+		for val[0].GetPageType() != PAGE_TYPE_PART {
+			result = append(result, val[0])
+			val = self.Read([]int{val[0].GetNext()})
+		}
+	}
+	result = append(result, val[0])
+	return result
+}
+
 func (self *KiteDBPageFile) Write(pages []*KiteDBPage) {
 	for _, page := range pages {
+		if page == nil {
+			continue
+		}
 		// 写page缓存
 		self.pageCache[page.pageId] = page
 		// log.Println("write page cache", page.pageId, page.data)
@@ -168,6 +208,7 @@ func (self *KiteDBPageFile) Write(pages []*KiteDBPage) {
 		self.writes <- &KiteDBWrite{
 			page:   page,
 			data:   page.data,
+			time:   time.Now().UnixNano(),
 			length: len(page.data),
 		}
 	}
@@ -197,7 +238,10 @@ func (self KiteDBWriteBatch) Len() int {
 }
 
 func (self KiteDBWriteBatch) Less(i, j int) bool {
-	return self[i].page.pageId < self[i].page.pageId
+	if self[i].page.pageId == self[j].page.pageId {
+		return self[i].time > self[j].time
+	}
+	return self[i].page.pageId < self[j].page.pageId
 }
 
 func (self KiteDBWriteBatch) Swap(i, j int) {
@@ -258,10 +302,21 @@ func (self *KiteDBPageFile) Flush() {
 }
 
 func (self *KiteDBPageFile) doWrite(l KiteDBWriteBatch) {
-	// log.Println("write active", l)
+	if len(l) == 0 {
+		return
+	}
 	sort.Sort(l)
-	// log.Println("write sorted", l)
+	filterIndex := 0
+	filterList := make([]*KiteDBWrite, 1)
+	filterList[0] = l[0]
 	for _, page := range l {
+		if filterList[filterIndex].page.pageId == page.page.pageId {
+			continue
+		}
+		filterIndex += 1
+		filterList = append(filterList, page)
+	}
+	for _, page := range filterList {
 		no := page.page.getWriteFileNo()
 		file := self.writeFile[no]
 		// log.Println("write file no", no, file)
@@ -289,7 +344,7 @@ func (self *KiteDBPageFile) doWrite(l KiteDBWriteBatch) {
 		// log.Println("write end ", self.path, page.page.pageId)
 		// log.Println("write ", n, " bytes")
 	}
-	// log.Println("write a batch")
+	// log.Fatal("write a batch")
 }
 
 func (self *KiteDBPageFile) WriteBatch(queue chan KiteDBWriteBatch, flush chan int) {

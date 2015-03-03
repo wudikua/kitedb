@@ -82,12 +82,13 @@ func (self *KiteDBSession) Save(key string, value []byte) bool {
 	length := len(value)
 	var bs []byte
 	pageN := math.Ceil(float64(length) / float64(self.pageFile.PageSize-page.PAGE_HEADER_SIZE))
+
 	// log.Println("page alloc ", pageN)
 	pages := self.pageFile.Allocate(int(pageN))
 	for i := 0; i < len(pages); i++ {
 		if length < (i+1)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE) {
-			bs = make([]byte, length)
-			copy(bs, value[i*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE):length])
+			bs = make([]byte, length-(i)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE))
+			copy(bs, value[(i)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE):length])
 		} else {
 			bs = make([]byte, self.pageFile.PageSize-page.PAGE_HEADER_SIZE)
 			copy(bs, value[i*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE):(i+1)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE)])
@@ -96,6 +97,7 @@ func (self *KiteDBSession) Save(key string, value []byte) bool {
 
 		if i+1 < len(pages) {
 			pages[i].SetPageType(page.PAGE_TYPE_PART)
+			pages[i].SetNext(pages[i+1].GetPageId())
 		} else {
 			pages[i].SetPageType(page.PAGE_TYPE_END)
 		}
@@ -112,6 +114,47 @@ func (self *KiteDBSession) Save(key string, value []byte) bool {
 	return true
 }
 
-func (self *KiteDBSession) Update(key string, value []byte) {
-	self.Save(key, value)
+func (self *KiteDBSession) Update(key string, value []byte) bool {
+	indexData, _ := self.index.Search(key)
+	query := &item.KeyIndexItem{}
+	query.Unmarshal(indexData)
+	pages := self.pageFile.ReadSeqPages(query.PageId)
+	pagesCount := len(pages)
+	length := len(value)
+	var bs []byte
+	pageN := int(math.Ceil(float64(length) / float64(self.pageFile.PageSize-page.PAGE_HEADER_SIZE)))
+	if pagesCount > pageN {
+		for i := len(pages) - 1; i >= pageN; i-- {
+			self.pageFile.Free([]int{pages[i].GetPageId()})
+			pages[i] = nil
+			pagesCount -= 1
+		}
+	} else if pagesCount < pageN {
+		appendPages := self.pageFile.Allocate(pageN - len(pages))
+		for _, p := range appendPages {
+			pages = append(pages, p)
+			pagesCount += 1
+		}
+	}
+
+	for i := 0; i < pageN; i++ {
+		if length < (i+1)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE) {
+			bs = make([]byte, length-(i)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE))
+			copy(bs, value[(i)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE):length])
+		} else {
+			bs = make([]byte, self.pageFile.PageSize-page.PAGE_HEADER_SIZE)
+			copy(bs, value[i*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE):(i+1)*(self.pageFile.PageSize-page.PAGE_HEADER_SIZE)])
+		}
+		pages[i].SetData(bs)
+
+		if i+1 < pagesCount {
+			pages[i].SetPageType(page.PAGE_TYPE_PART)
+			pages[i].SetNext(pages[i+1].GetPageId())
+		} else {
+			pages[i].SetPageType(page.PAGE_TYPE_END)
+		}
+		pages[i].SetChecksum()
+	}
+	self.pageFile.Write(pages)
+	return true
 }

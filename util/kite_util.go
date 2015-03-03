@@ -193,6 +193,7 @@ func (self *KiteBitsetDisk) load() {
 	if self.fp, err = os.OpenFile(fmt.Sprintf("%s/%s.bit", self.dir, self.name), os.O_CREATE|os.O_RDWR, 0666); err != nil {
 		log.Fatal(err)
 	}
+	log.Println("open ", fmt.Sprintf("%s/%s.bit", self.dir, self.name))
 	self.bits, err = ioutil.ReadAll(self.fp)
 	if err != nil {
 		log.Fatal(err)

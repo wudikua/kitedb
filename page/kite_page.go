@@ -11,7 +11,7 @@ import (
 
 const PAGE_TYPE_PART = 0
 const PAGE_TYPE_END = 1
-const PAGE_HEADER_SIZE = 4 + 4 + 4 + 4
+const PAGE_HEADER_SIZE = 4 + 4 + 4 + 4 + 4
 
 type KiteDBPage struct {
 	pageId   int    // 每页一个id
@@ -43,6 +43,10 @@ func (self *KiteDBPage) GetPageType() int {
 
 func (self *KiteDBPage) GetNext() int {
 	return self.next
+}
+
+func (self *KiteDBPage) SetNext(next int) {
+	self.next = next
 }
 
 func (self *KiteDBPage) GetPageId() int {
@@ -81,6 +85,7 @@ func (self *KiteDBPage) ToBinary() []byte {
 
 	binary.Write(buff, binary.BigEndian, uint32(self.pageId))
 	binary.Write(buff, binary.BigEndian, uint32(self.pageType))
+	binary.Write(buff, binary.BigEndian, uint32(self.next))
 	binary.Write(buff, binary.BigEndian, uint32(self.checksum))
 	binary.Write(buff, binary.BigEndian, uint32(len(self.data)))
 	binary.Write(buff, binary.BigEndian, self.data)
@@ -100,6 +105,8 @@ func (self *KiteDBPage) ToPage(reader *os.File) error {
 	}
 	binary.Read(reader, binary.BigEndian, &tmp)
 	self.pageType = int(tmp)
+	binary.Read(reader, binary.BigEndian, &tmp)
+	self.next = int(tmp)
 	binary.Read(reader, binary.BigEndian, &self.checksum)
 	binary.Read(reader, binary.BigEndian, &tmp)
 	bs := make([]byte, tmp)

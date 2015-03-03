@@ -143,17 +143,22 @@ func (self *KiteBTreeNode) WriteDisk() error {
 
 func (self *KiteBTreeNode) writeVariable(write []byte) int {
 	length := len(write)
+	var bs []byte
 	pageN := math.Ceil(float64(length) / float64(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE))
 	pages := self.btree.pageFile.Allocate(int(pageN))
 	for j := 0; j < len(pages); j++ {
 		if length < (j+1)*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE) {
-			pages[j].SetData(write[j*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE) : length])
+			bs = make([]byte, length-(j)*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE))
+			copy(bs, write[(j)*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE):length])
 		} else {
-			pages[j].SetData(write[j*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE) : (j+1)*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE)])
+			bs = make([]byte, self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE)
+			copy(bs, write[j*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE):(j+1)*(self.btree.pageFile.PageSize-page.PAGE_HEADER_SIZE)])
 		}
+		pages[j].SetData(bs)
 
 		if j+1 < len(pages) {
 			pages[j].SetPageType(page.PAGE_TYPE_PART)
+			pages[j].SetNext(pages[j+1].GetPageId())
 		} else {
 			pages[j].SetPageType(page.PAGE_TYPE_END)
 		}
