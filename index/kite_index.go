@@ -3,6 +3,7 @@ package index
 type KiteIndex interface {
 	Insert(key string, data KiteIndexItem) error
 	Search(key string) ([]byte, error)
+	Flush() error
 }
 
 type KiteIndexItem interface {

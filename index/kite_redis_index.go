@@ -35,3 +35,7 @@ func (self *KiteRedisIndex) Search(key string) ([]byte, error) {
 	b, _ := r.BytesValue()
 	return b, nil
 }
+
+func (self *KiteRedisIndex) Flush() error {
+	return nil
+}

@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"time"
 )
 
 type Type interface{}
@@ -58,12 +57,12 @@ type KiteBitset interface {
 	Set(index int, status bool)
 	At(index int) bool
 	Next() int
+	Flush()
 }
 
 type KiteBitsetRedis struct {
 	numBits int
 	bits    []byte
-	version int
 }
 
 func NewKiteBitset() *KiteBitsetRedis {
@@ -78,34 +77,26 @@ func NewKiteBitset() *KiteBitsetRedis {
 	var b *KiteBitsetRedis
 	if bits != nil && len(num_bytes) > 0 {
 		num := int(binary.BigEndian.Uint32(num_bytes))
-		b = &KiteBitsetRedis{numBits: num, bits: bits, version: 0}
+		b = &KiteBitsetRedis{numBits: num, bits: bits}
 	} else {
-		b = &KiteBitsetRedis{numBits: 0, bits: make([]byte, 0), version: 0}
+		b = &KiteBitsetRedis{numBits: 0, bits: make([]byte, 0)}
 	}
-	go b.Save(b.version)
 	return b
 }
 
-func (b *KiteBitsetRedis) Save(saveVersion int) {
-	for {
-		time.Sleep(time.Millisecond * 100)
-		if b.version > saveVersion {
-			clone := &KiteBitsetRedis{numBits: b.numBits, bits: b.bits[:]}
-			redis, err := goredis.Dial(&goredis.DialConfig{Address: ":6379"})
-			if err != nil {
-				log.Fatal("page bits redis down")
-			}
-			redis.ExecuteCommand("SET", "page_bits", clone.bits)
-			bs := make([]byte, 4)
-			binary.BigEndian.PutUint32(bs, uint32(clone.numBits))
-			redis.ExecuteCommand("SET", "page_bits_num", bs)
-			saveVersion = b.version
-		}
+func (b *KiteBitsetRedis) Flush() {
+	clone := &KiteBitsetRedis{numBits: b.numBits, bits: b.bits[:]}
+	redis, err := goredis.Dial(&goredis.DialConfig{Address: ":6379"})
+	if err != nil {
+		log.Fatal("page bits redis down")
 	}
+	redis.ExecuteCommand("SET", "page_bits", clone.bits)
+	bs := make([]byte, 4)
+	binary.BigEndian.PutUint32(bs, uint32(clone.numBits))
+	redis.ExecuteCommand("SET", "page_bits_num", bs)
 }
 
 func (b *KiteBitsetRedis) AppendBytes(data []byte) {
-	b.version = b.version + 1
 	for _, d := range data {
 		b.AppendByte(d, 8)
 	}
@@ -157,7 +148,6 @@ func (b *KiteBitsetRedis) At(index int) bool {
 }
 
 func (b *KiteBitsetRedis) Set(index int, status bool) {
-	b.version = b.version + 1
 	b.ensureCapacity(index)
 
 	if status == true {
@@ -238,8 +228,8 @@ func (self *KiteBitsetDisk) AppendByte(value byte, numBits int) {
 	for i := numBits - 1; i >= 0; i-- {
 		if value&(1<<uint(i)) != 0 {
 			self.bits[self.numBits/8] |= 0x80 >> uint(self.numBits%8)
-			self.fp.Seek(int64(self.numBits/8), 0)
-			self.fp.Write([]byte{self.bits[self.numBits/8]})
+			// self.fp.Seek(int64(self.numBits/8), 0)
+			// self.fp.Write([]byte{self.bits[self.numBits/8]})
 		}
 		self.numBits++
 	}
@@ -260,10 +250,15 @@ func (self *KiteBitsetDisk) Set(index int, status bool) {
 	if self.nextBits < index {
 		self.nextBits = index + 1
 	}
-	self.fp.Seek(int64(index/8), 0)
-	self.fp.Write([]byte{self.bits[index/8]})
+	// self.fp.Seek(int64(index/8), 0)
+	// self.fp.Write([]byte{self.bits[index/8]})
 }
 
 func (self *KiteBitsetDisk) Next() int {
 	return self.nextBits
+}
+
+func (self *KiteBitsetDisk) Flush() {
+	self.fp.Seek(0, 0)
+	self.fp.Write(self.bits)
 }

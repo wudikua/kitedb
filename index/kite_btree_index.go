@@ -91,33 +91,50 @@ func (self *KiteBTreeNode) String() string {
 
 func (self *KiteBTreeNode) WriteDisk() error {
 	bs := make([]byte, 0, page.PAGE_FILE_PAGE_SIZE)
+	b4 := make([]byte, 4)
 	buff := bytes.NewBuffer(bs)
 	// 有多少个记录
-	binary.Write(buff, binary.BigEndian, uint32(self.n))
-	binary.Write(buff, binary.BigEndian, uint32(self.t))
+	// binary.Write(buff, binary.BigEndian, uint32(self.n))
+	binary.BigEndian.PutUint32(b4, uint32(self.n))
+	buff.Write(b4)
+	// binary.Write(buff, binary.BigEndian, uint32(self.t))
+	binary.BigEndian.PutUint32(b4, uint32(self.t))
+	buff.Write(b4)
 	if self.leaf {
-		binary.Write(buff, binary.BigEndian, byte(1))
+		// binary.Write(buff, binary.BigEndian, byte(1))
+		buff.Write([]byte{1})
 	} else {
-		binary.Write(buff, binary.BigEndian, byte(0))
+		// binary.Write(buff, binary.BigEndian, byte(0))
+		buff.Write([]byte{0})
 	}
 	if self.pageId == 0 {
 		if self.btree.clustered {
-			binary.Write(buff, binary.BigEndian, byte(1))
+			// binary.Write(buff, binary.BigEndian, byte(1))
+			buff.Write([]byte{1})
 		} else {
-			binary.Write(buff, binary.BigEndian, byte(0))
+			// binary.Write(buff, binary.BigEndian, byte(0))
+			buff.Write([]byte{0})
 		}
 	}
+
+	// self.loaded = true
+	// return nil
 
 	// log.Println("write n", self.n, " at page ", self.pageId)
 	// log.Println("write keys vals", self.keys, self.vals, " at page ", self.pageId)
 	// 写入keys vals
 	for i := 0; i < self.n && i < 2*self.t-1; i++ {
-		binary.Write(buff, binary.BigEndian, uint32(self.keysPageId[i]))
+		// binary.Write(buff, binary.BigEndian, uint32(self.keysPageId[i]))
+		binary.BigEndian.PutUint32(b4, uint32(self.keysPageId[i]))
+		buff.Write(b4)
 		// log.Println("write key val ", self.keys[i], self.vals[i])
 		// log.Println("write keysId", self.keysPageId[i], " at page ", self.pageId)
-		binary.Write(buff, binary.BigEndian, uint32(self.valsPageId[i]))
+		// binary.Write(buff, binary.BigEndian, uint32(self.valsPageId[i]))
+		binary.BigEndian.PutUint32(b4, uint32(self.valsPageId[i]))
+		buff.Write(b4)
 		// log.Println("write valsId", self.valsPageId[i], " at page ", self.pageId)
 	}
+
 	if !self.leaf {
 		// log.Println("leaf write", self)
 		// 写入children
@@ -125,7 +142,9 @@ func (self *KiteBTreeNode) WriteDisk() error {
 			if self.children[i].pageId == 0 && self.children[i].keys[0] != "" {
 				log.Fatal("child pageId can not be zero ", self)
 			}
-			binary.Write(buff, binary.BigEndian, uint32(self.children[i].pageId))
+			// binary.Write(buff, binary.BigEndian, uint32(self.children[i].pageId))
+			binary.BigEndian.PutUint32(b4, uint32(self.children[i].pageId))
+			buff.Write(b4)
 		}
 	}
 
@@ -135,7 +154,7 @@ func (self *KiteBTreeNode) WriteDisk() error {
 	pages[0].SetChecksum()
 	pages[0].SetPageType(page.PAGE_TYPE_END)
 	self.btree.pageFile.Write(pages)
-	self.btree.pageFile.Flush()
+	// self.btree.pageFile.Flush()
 	self.loaded = true
 	// log.Println("flush btree", self.pageId)
 	return nil
@@ -168,7 +187,7 @@ func (self *KiteBTreeNode) writeVariable(write []byte) int {
 	// 没有写入磁盘，只是放入到了写入队列，同时放到PageCache里
 	// log.Println("write ", pages)
 	self.btree.pageFile.Write(pages)
-	self.btree.pageFile.Flush()
+	// self.btree.pageFile.Flush()
 	return pages[0].GetPageId()
 }
 
@@ -404,6 +423,11 @@ func (self *KiteBTreeIndex) Search(key string) ([]byte, error) {
 		return nil, nil
 	}
 	return self.root.children[i].Search(key), nil
+}
+
+func (self *KiteBTreeIndex) Flush() error {
+	self.pageFile.Flush()
+	return nil
 }
 
 func (self *KiteBTreeIndex) Display() string {
