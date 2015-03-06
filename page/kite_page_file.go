@@ -17,7 +17,7 @@ import (
 const PAGEFILE_SUFFIX = ".data"
 const PAGE_FILE_HEADER_SIZE = 4 * 1024
 const NEW_FREE_LIST_SIZE = 32
-const PAGE_FILE_PAGE_COUNT = 1024
+const PAGE_FILE_PAGE_COUNT = 10240
 const PAGE_FILE_PAGE_SIZE = 1 * 1024
 const MAX_PAGE_FILES = 32
 
@@ -53,7 +53,7 @@ func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
 	log.Println(dir)
 	// 创建目录
 	if _, err := os.Stat(dir); err != nil {
-		if err := os.Mkdir(dir, 0777); err != nil {
+		if err := os.MkdirAll(dir, 0777); err != nil {
 			log.Fatal("create ", dir, " failed")
 			return nil
 		}
@@ -68,7 +68,7 @@ func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
 		pageCache:        make(map[int]*KiteDBPage),
 		pageCacheSize:    1024, //4MB
 		writes:           make(chan *KiteDBWrite, 1),
-		pageStatus:       util.NewKiteBitsetDisk(base, dbName),
+		pageStatus:       util.NewKiteBitsetDisk(dir, dbName),
 		freeList:         list.New(),
 		allocLock:        mutex,
 		writeStop:        make(chan int, 1),
@@ -253,6 +253,7 @@ func (self *KiteDBPageFile) pollWrite() {
 	writeQueue := make(chan KiteDBWriteBatch)
 	list := make(KiteDBWriteBatch, 0, 1024)
 	flush := make(chan int, 1)
+	benchSize := 1024
 	go self.WriteBatch(writeQueue, flush)
 
 	go func() {
@@ -272,7 +273,7 @@ func (self *KiteDBPageFile) pollWrite() {
 				copy(clone, list[:len(list)])
 				writeQueue <- clone
 				flush <- 1
-				list = make(KiteDBWriteBatch, 0, 32)
+				list = make(KiteDBWriteBatch, 0, benchSize)
 			}
 			flush <- 1
 			self.writeFlushFinish <- 1
@@ -281,14 +282,14 @@ func (self *KiteDBPageFile) pollWrite() {
 			clone := make(KiteDBWriteBatch, len(list))
 			copy(clone, list[:len(list)])
 			writeQueue <- clone
-			list = make(KiteDBWriteBatch, 0, 32)
+			list = make(KiteDBWriteBatch, 0, benchSize)
 		case pageWrite := <-self.writes:
 			// log.Println("append page write ", pageWrite.page.data)
-			if len(list) == 32 {
+			if len(list) == benchSize {
 				clone := make(KiteDBWriteBatch, len(list))
 				copy(clone, list[:len(list)])
 				writeQueue <- clone
-				list = make(KiteDBWriteBatch, 0, 32)
+				list = make(KiteDBWriteBatch, 0, benchSize)
 			}
 			list = append(list, pageWrite)
 		}
@@ -344,6 +345,7 @@ func (self *KiteDBPageFile) doWrite(l KiteDBWriteBatch) {
 		// log.Println("write end ", self.path, page.page.pageId)
 		// log.Println("write ", n, " bytes")
 	}
+	self.pageStatus.Flush()
 	// log.Fatal("write a batch")
 }
 

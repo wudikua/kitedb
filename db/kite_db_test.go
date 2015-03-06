@@ -3,23 +3,21 @@ package db
 import (
 	"fmt"
 	"log"
-	// "os"
-	// "runtime/pprof"
+	"net/http"
+	_ "net/http/pprof"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestSave(t *testing.T) {
-	// f, err := os.Create("pprof.data")
-	// if err != nil {
-	// 	t.Fatal(err)
-	// }
-	// pprof.StartCPUProfile(f)
+	go func() {
+		http.ListenAndServe(":13800", nil)
+	}()
 	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
 	session := db.GetSession()
 	session.SelectDB("test")
-	N := 1000
+	N := 1000000
 	begin := time.Now().UnixNano()
 	for i := 0; i < N; i++ {
 		session.Save(fmt.Sprintf("%d", i), []byte(strings.Repeat(fmt.Sprintf("%d", i%10), 200)))

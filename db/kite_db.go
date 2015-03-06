@@ -8,6 +8,7 @@ import (
 	// "log"
 	// "fmt"
 	"math"
+	"sync"
 )
 
 // 一个存储引擎
@@ -15,6 +16,7 @@ type KiteDB struct {
 	dbs  map[string]*page.KiteDBPageFile
 	idxs map[string]index.KiteIndex
 	dir  string
+	sync.RWMutex
 }
 
 // 创建一个DB，指定一个存储目录
@@ -32,7 +34,7 @@ func (self *KiteDB) SelectDB(dbName string) (*page.KiteDBPageFile, index.KiteInd
 	var idx index.KiteIndex
 	db, exists := self.dbs[dbName]
 	if !exists {
-		db = page.NewKiteDBPageFile(self.dir, dbName)
+		db = page.NewKiteDBPageFile(self.dir+"/data", dbName)
 		self.dbs[dbName] = db
 	}
 
@@ -69,9 +71,12 @@ func (self *KiteDBSession) SelectDB(dbName string) {
 
 func (self *KiteDBSession) Flush() {
 	self.pageFile.Flush()
+	self.index.Flush()
 }
 
 func (self *KiteDBSession) Query(key string) []byte {
+	// self.db.RLock()
+	// defer self.db.RUnlock()
 	indexData, _ := self.index.Search(key)
 	query := &item.KeyIndexItem{}
 	query.Unmarshal(indexData)
@@ -79,6 +84,8 @@ func (self *KiteDBSession) Query(key string) []byte {
 }
 
 func (self *KiteDBSession) Save(key string, value []byte) bool {
+	// self.db.Lock()
+	// defer self.db.Unlock()
 	length := len(value)
 	var bs []byte
 	pageN := math.Ceil(float64(length) / float64(self.pageFile.PageSize-page.PAGE_HEADER_SIZE))
@@ -115,6 +122,8 @@ func (self *KiteDBSession) Save(key string, value []byte) bool {
 }
 
 func (self *KiteDBSession) Update(key string, value []byte) bool {
+	// self.db.Lock()
+	// defer self.db.Unlock()
 	indexData, _ := self.index.Search(key)
 	query := &item.KeyIndexItem{}
 	query.Unmarshal(indexData)

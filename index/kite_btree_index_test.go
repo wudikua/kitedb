@@ -29,18 +29,20 @@ func TestSearch(t *testing.T) {
 func TestIndexBench(t *testing.T) {
 	N := 100
 	var idx *KiteBTreeIndex
-	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, false)
+	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 64, false)
+	begin := time.Now().UnixNano()
 	for i := 0; i < N; i++ {
 		val := &item.KeyIndexItem{
 			PageId: i + 1,
 		}
 		key := fmt.Sprintf("%d", i)
-		log.Println("index ", key, i+1)
+		// log.Println("index ", key, i+1)
 		idx.Insert(key, val)
 	}
 	idx.pageFile.Flush()
-
-	log.Println("index ", N, " key val")
+	end := time.Now().UnixNano()
+	per := float32(float32(end-begin) / float32(1000) / float32(1000) / float32(N))
+	log.Println("index ", N, "record use", (end-begin)/1000/1000, "ms", 1000/per, "qps/s")
 	time.Sleep(time.Second * 3)
 	// log.Println(idx.root)
 }
@@ -48,7 +50,7 @@ func TestIndexBench(t *testing.T) {
 func TestSearchBench(t *testing.T) {
 	N := 100
 	var idx *KiteBTreeIndex
-	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 4, false)
+	idx = NewKiteBTreeIndex("/Users/mengjun/dev/src/kitedb/index", "test", 64, false)
 	// log.Println(idx.root)
 	// key := "2"
 	// rs, _ := idx.Search(key)
