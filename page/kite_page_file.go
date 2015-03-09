@@ -20,17 +20,18 @@ const NEW_FREE_LIST_SIZE = 32
 const PAGE_FILE_PAGE_COUNT = 10240
 const PAGE_FILE_PAGE_SIZE = 1 * 1024
 const MAX_PAGE_FILES = 32
+const PAGE_FILE_PAGE_CACHE_SIZE = 1024
 
 // 维护了一组数据文件
 type KiteDBPageFile struct {
 	path             string
 	writeFile        map[int]*os.File
 	readFile         map[int]*os.File
-	PageSize         int                 //每页的大小 默认4K
-	pageCount        int                 //每个PageFile文件包含page数量
-	pageCache        map[int]*KiteDBPage //以页ID为索引的缓存
-	pageCacheSize    int                 //页缓存大小
-	writes           chan *KiteDBWrite   //刷盘队列
+	PageSize         int                //每页的大小 默认4K
+	pageCount        int                //每个PageFile文件包含page数量
+	pageCache        *util.KiteLRUCache //以页ID为索引的缓存
+	pageCacheSize    int                //页缓存大小
+	writes           chan *KiteDBWrite  //刷盘队列
 	writeStop        chan int
 	writeFlush       chan int
 	writeFlushFinish chan int
@@ -65,8 +66,8 @@ func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
 		writeFile:        make(map[int]*os.File),
 		PageSize:         PAGE_FILE_PAGE_SIZE,
 		pageCount:        PAGE_FILE_PAGE_COUNT,
-		pageCache:        make(map[int]*KiteDBPage),
-		pageCacheSize:    1024, //4MB
+		pageCache:        util.NewKiteLRUCache(PAGE_FILE_PAGE_CACHE_SIZE),
+		pageCacheSize:    PAGE_FILE_PAGE_CACHE_SIZE,
 		writes:           make(chan *KiteDBWrite, 1),
 		pageStatus:       util.NewKiteBitsetDisk(dir, dbName),
 		freeList:         list.New(),
@@ -121,9 +122,9 @@ func (self *KiteDBPageFile) Free(pageIds []int) {
 			pageId: pageId,
 		})
 		self.pageStatus.Set(pageId, false)
-		_, contains := self.pageCache[pageId]
+		_, contains := self.pageCache.Get(pageId)
 		if contains {
-			self.pageCache[pageId] = nil
+			self.pageCache.Delete(pageId)
 		}
 	}
 }
@@ -131,7 +132,8 @@ func (self *KiteDBPageFile) Free(pageIds []int) {
 func (self *KiteDBPageFile) Read(pageIds []int) (pages []*KiteDBPage) {
 	result := []*KiteDBPage{}
 	for _, pageId := range pageIds {
-		page, contains := self.pageCache[pageId]
+		pageInterface, contains := self.pageCache.Get(pageId)
+		var page *KiteDBPage
 		if !contains {
 			// log.Println("miss page cache")
 			page = &KiteDBPage{
@@ -151,7 +153,9 @@ func (self *KiteDBPageFile) Read(pageIds []int) (pages []*KiteDBPage) {
 			if err := page.ToPage(file); err != nil {
 				log.Fatal(err)
 			}
-			self.pageCache[pageId] = page
+			self.pageCache.Set(pageId, page)
+		} else {
+			page = pageInterface.(*KiteDBPage)
 		}
 		// log.Println("fetch page from cache", page.data)
 		result = append(result, page)
@@ -202,7 +206,7 @@ func (self *KiteDBPageFile) Write(pages []*KiteDBPage) {
 			continue
 		}
 		// 写page缓存
-		self.pageCache[page.pageId] = page
+		self.pageCache.Set(page.pageId, page)
 		// log.Println("write page cache", page.pageId, page.data)
 		// log.Println("write async")
 		self.writes <- &KiteDBWrite{
@@ -302,6 +306,23 @@ func (self *KiteDBPageFile) Flush() {
 	// log.Println("flush end")
 }
 
+func (self *KiteDBPageFile) getWriteFile(no int) *os.File {
+	file := self.writeFile[no]
+	// log.Println("write file no", no, file)
+	if file == nil {
+		file, _ = os.OpenFile(
+			fmt.Sprintf("%s/%d%s", self.path, no, PAGEFILE_SUFFIX),
+			os.O_CREATE|os.O_RDWR,
+			0666)
+		self.writeFile[no] = file
+		fileStat, _ := file.Stat()
+		if fileStat.Size() == 0 {
+			self.writeHeader(file)
+		}
+	}
+	return file
+}
+
 func (self *KiteDBPageFile) doWrite(l KiteDBWriteBatch) {
 	if len(l) == 0 {
 		return
@@ -317,30 +338,43 @@ func (self *KiteDBPageFile) doWrite(l KiteDBWriteBatch) {
 		filterIndex += 1
 		filterList = append(filterList, page)
 	}
-	for _, page := range filterList {
+	length := len(filterList)
+	for i := 0; i < length; i++ {
+		page := filterList[i]
+
 		no := page.page.getWriteFileNo()
-		file := self.writeFile[no]
-		// log.Println("write file no", no, file)
-		if file == nil {
-			file, _ = os.OpenFile(
-				fmt.Sprintf("%s/%d%s", self.path, no, PAGEFILE_SUFFIX),
-				os.O_CREATE|os.O_RDWR,
-				0666)
-			self.writeFile[no] = file
-			fileStat, _ := file.Stat()
-			if fileStat.Size() == 0 {
-				self.writeHeader(file)
+
+		file := self.getWriteFile(no)
+
+		bs := page.page.ToBinary()
+
+		file.Seek(page.page.getOffset(), 0)
+
+		if i+1 < length && filterList[i+1].page.pageId == page.page.pageId+1 {
+			buff := bytes.NewBuffer(bs)
+			for j := 1; j+i < length; j++ {
+				if filterList[j].page.pageId == page.page.pageId+j {
+					buff.Write(filterList[j].page.ToBinary())
+				} else {
+					break
+				}
+				i = j
+			}
+
+			_, err := file.Write(buff.Bytes())
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			_, err := file.Write(bs)
+			if err != nil {
+				log.Fatal(err)
 			}
 		}
-		file.Seek(page.page.getOffset(), 0)
-		bs := page.page.ToBinary()
+
 		// log.Println("write binary", bs)
 		// log.Println("write binary length", len(bs))
 
-		_, err := file.Write(bs)
-		if err != nil {
-			log.Fatal(err)
-		}
 		// file.Sync()
 		// log.Println("write end ", self.path, page.page.pageId)
 		// log.Println("write ", n, " bytes")

@@ -391,7 +391,6 @@ func (self *KiteBTreeIndex) Insert(key string, data KiteIndexItem) error {
 	r := self.root
 	if r.n == 2*r.t-1 {
 		// 根节点已经满了，需要树增高分裂
-		// log.Println("tree height grow")
 		root := NewKiteBTreeNode(self.degree / 2)
 		root.btree = self
 		root.pageId = r.pageId
