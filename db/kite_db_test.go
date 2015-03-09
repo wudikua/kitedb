@@ -14,10 +14,11 @@ func TestSave(t *testing.T) {
 	go func() {
 		http.ListenAndServe(":13800", nil)
 	}()
-	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
+	log.Println("save begin")
+	db := NewKiteDB("data")
 	session := db.GetSession()
 	session.SelectDB("test")
-	N := 1000000
+	N := 1000
 	begin := time.Now().UnixNano()
 	for i := 0; i < N; i++ {
 		session.Save(fmt.Sprintf("%d", i), []byte(strings.Repeat(fmt.Sprintf("%d", i%10), 200)))
@@ -28,12 +29,11 @@ func TestSave(t *testing.T) {
 	end := time.Now().UnixNano()
 	per := float32(float32(end-begin) / float32(1000) / float32(1000) / float32(N))
 	log.Println("save ", N, "record use", (end-begin)/1000/1000, "ms", 1000/per, "qps/s")
-	// time.Sleep(time.Second * 3)
 	// pprof.StopCPUProfile()
 }
 
 func TestReSave(t *testing.T) {
-	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
+	db := NewKiteDB("data")
 	session := db.GetSession()
 	session.SelectDB("test")
 	N := 500
@@ -48,7 +48,7 @@ func TestReSave(t *testing.T) {
 	log.Println("save ", N, "record use", (end-begin)/1000/1000, " ms")
 
 	// 重新打开数据库
-	db = NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
+	db = NewKiteDB("data")
 	session = db.GetSession()
 	session.SelectDB("test")
 	N = 1000
@@ -65,7 +65,10 @@ func TestReSave(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
+	go func() {
+		http.ListenAndServe(":13800", nil)
+	}()
+	db := NewKiteDB("data")
 	session := db.GetSession()
 	session.SelectDB("test")
 	N := 1000
@@ -85,7 +88,7 @@ func TestQuery(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	db := NewKiteDB("/Users/mengjun/dev/src/kitedb/db/data")
+	db := NewKiteDB("data")
 	session := db.GetSession()
 	session.SelectDB("test")
 	N := 1000
