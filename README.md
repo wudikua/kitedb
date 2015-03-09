@@ -21,7 +21,7 @@ log.Println("flush end")
 
 ```
 go test -run="TestSave"
-2015/03/01 14:42:55 save  1000 record use 93 ms 10688.419 qps/s
+2015/03/01 14:42:55 save  1000 record use 40 ms 24901.994 qps/s
 PASS
 ok  	kitedb/db	3.040s
 ```
