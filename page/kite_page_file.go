@@ -38,7 +38,6 @@ type KiteDBPageFile struct {
 	pageStatus       util.KiteBitset
 	allocLock        sync.Mutex //主要是对分配Page的时候需要加锁，防止重复分配了一个Page
 	freeList         *list.List //空闲页 优先向这里写入
-	nextFreePageId   int        //空闲页的分配从这里开始
 }
 
 // 数据的写入做了个封装
@@ -76,7 +75,6 @@ func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
 		writeFlush:       make(chan int, 1),
 		writeFlushFinish: make(chan int, 1),
 	}
-	ins.nextFreePageId = ins.pageStatus.Next()
 	go ins.pollWrite()
 	return ins
 }
@@ -84,12 +82,9 @@ func NewKiteDBPageFile(base string, dbName string) *KiteDBPageFile {
 func (self *KiteDBPageFile) reAllocFreeList(size int) {
 	for i := 0; i < size; i++ {
 		self.freeList.PushFront(&KiteDBPage{
-			pageId: self.nextFreePageId + i,
+			pageId: self.pageStatus.Next() + i,
 		})
 	}
-	bs := make([]byte, NEW_FREE_LIST_SIZE/8)
-	self.pageStatus.AppendBytes(bs)
-	self.nextFreePageId += size
 }
 
 func (self *KiteDBPageFile) Allocate(count int) []*KiteDBPage {

@@ -3,11 +3,8 @@ package util
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"github.com/xuyu/goredis"
-	"io/ioutil"
 	"log"
-	"os"
 )
 
 type Type interface{}
@@ -50,14 +47,6 @@ func (self *KiteRingQueue) Dequeue() (Type, error) {
 	data := self.data[self.front]
 	self.front = (self.front + 1) % self.size
 	return data, nil
-}
-
-type KiteBitset interface {
-	AppendBytes(data []byte)
-	Set(index int, status bool)
-	At(index int) bool
-	Next() int
-	Flush()
 }
 
 type KiteBitsetRedis struct {
@@ -155,110 +144,4 @@ func (b *KiteBitsetRedis) Set(index int, status bool) {
 	} else {
 		b.bits[index/8] &= (0x80 >> byte(index%8)) ^ 0xf
 	}
-}
-
-type KiteBitsetDisk struct {
-	numBits  int
-	nextBits int
-	bits     []byte
-	dir      string
-	name     string
-	fp       *os.File
-}
-
-func NewKiteBitsetDisk(dir string, name string) *KiteBitsetDisk {
-	var b *KiteBitsetDisk
-	b = &KiteBitsetDisk{
-		numBits: 0,
-		bits:    make([]byte, 0),
-		dir:     dir,
-		name:    name,
-	}
-	b.load()
-	return b
-}
-
-func (self *KiteBitsetDisk) load() {
-	var err error
-	if self.fp, err = os.OpenFile(fmt.Sprintf("%s/%s.bit", self.dir, self.name), os.O_CREATE|os.O_RDWR, 0666); err != nil {
-		log.Fatal(err)
-	}
-	log.Println("open ", fmt.Sprintf("%s/%s.bit", self.dir, self.name))
-	self.bits, err = ioutil.ReadAll(self.fp)
-	if err != nil {
-		log.Fatal(err)
-	}
-	self.numBits = len(self.bits) * 8
-	if self.numBits == 0 {
-		self.nextBits = 0
-		self.bits = make([]byte, 1)
-	} else {
-		for i := len(self.bits) * 8; i >= 0; i-- {
-			if self.At(i) {
-				self.nextBits = i + 1
-				break
-			}
-		}
-	}
-}
-
-func (self *KiteBitsetDisk) ensureCapacity(numBits int) {
-	numBits += self.numBits
-	newNumBytes := numBits / 8
-	if numBits%8 != 0 {
-		newNumBytes++
-	}
-	if len(self.bits) >= newNumBytes {
-		return
-	}
-	self.bits = append(self.bits, make([]byte, newNumBytes+2*len(self.bits))...)
-}
-
-func (self *KiteBitsetDisk) AppendBytes(data []byte) {
-	for _, d := range data {
-		self.AppendByte(d, 8)
-	}
-}
-
-func (self *KiteBitsetDisk) AppendByte(value byte, numBits int) {
-	self.ensureCapacity(numBits)
-	if numBits > 8 {
-		log.Fatal("numBits %d out of range 0-8", numBits)
-	}
-	for i := numBits - 1; i >= 0; i-- {
-		if value&(1<<uint(i)) != 0 {
-			self.bits[self.numBits/8] |= 0x80 >> uint(self.numBits%8)
-			// self.fp.Seek(int64(self.numBits/8), 0)
-			// self.fp.Write([]byte{self.bits[self.numBits/8]})
-		}
-		self.numBits++
-	}
-}
-
-func (self *KiteBitsetDisk) At(index int) bool {
-	self.ensureCapacity(index)
-	return (self.bits[index/8] & (0x80 >> byte(index%8))) != 0
-}
-
-func (self *KiteBitsetDisk) Set(index int, status bool) {
-	self.ensureCapacity(index)
-	if status == true {
-		self.bits[index/8] |= (0x80 >> byte(index%8))
-	} else {
-		self.bits[index/8] &= (0x80 >> byte(index%8)) ^ 0xf
-	}
-	if self.nextBits < index {
-		self.nextBits = index + 1
-	}
-	// self.fp.Seek(int64(index/8), 0)
-	// self.fp.Write([]byte{self.bits[index/8]})
-}
-
-func (self *KiteBitsetDisk) Next() int {
-	return self.nextBits
-}
-
-func (self *KiteBitsetDisk) Flush() {
-	self.fp.Seek(0, 0)
-	self.fp.Write(self.bits)
 }
